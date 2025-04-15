@@ -1,6 +1,5 @@
 #include <Windows.h>
 #include <d3d9.h>
-#include <thread>
 #include "menu.h"
 #include "aimbot.h"
 #include "esp.h"
@@ -40,6 +39,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     return CallWindowProc(oWndProc, hWnd, uMsg, wParam, lParam);
 }
 
+// Aimbot thread function
+DWORD WINAPI AimbotThread(LPVOID lpParam) {
+    while (true) {
+        RunAimbot();
+        Sleep(1);
+    }
+    return 0;
+}
+
 // Main thread function
 DWORD WINAPI MainThread(LPVOID lpReserved) {
     // Wait for CS:GO window
@@ -51,13 +59,7 @@ DWORD WINAPI MainThread(LPVOID lpReserved) {
     oWndProc = (WNDPROC)SetWindowLongPtr(window, GWLP_WNDPROC, (LONG_PTR)WndProc);
 
     // Start aimbot thread
-    CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
-        while (true) {
-            RunAimbot();
-            Sleep(1);
-        }
-        return 0;
-    }, nullptr, 0, nullptr);
+    CreateThread(nullptr, 0, AimbotThread, nullptr, 0, nullptr);
 
     // TODO: Implement DirectX EndScene hooking here
     // This part would normally involve finding the vtable and hooking EndScene
