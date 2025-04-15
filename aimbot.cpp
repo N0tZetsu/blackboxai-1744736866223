@@ -13,13 +13,13 @@ namespace {
 void GetLocalPlayerPos(float& x, float& y, float& z) {
     auto& memory = Memory::Get();
     
-    // Read local player
-    uintptr_t localPlayer = memory.Read<uintptr_t>(memory.GetClientModule() + Offsets::dwLocalPlayer);
-    if (!localPlayer) return;
+    // Get local player pawn in CS2
+    uintptr_t localPawn = memory.GetLocalPlayerPawn();
+    if (!localPawn) return;
 
     // Read position
-    Vector3 origin = memory.Read<Vector3>(localPlayer + Offsets::m_vecOrigin);
-    Vector3 viewOffset = memory.Read<Vector3>(localPlayer + Offsets::m_vecViewOffset);
+    Vector3 origin = memory.Read<Vector3>(localPawn + Offsets::m_vecOrigin);
+    Vector3 viewOffset = memory.Read<Vector3>(localPawn + Offsets::m_vecViewOffset);
     
     // Add view offset to get eye position
     x = origin.x + viewOffset.x;
@@ -31,36 +31,46 @@ std::vector<Player> GetEnemyPlayers() {
     std::vector<Player> enemies;
     auto& memory = Memory::Get();
     
-    // Read local player first
-    uintptr_t localPlayer = memory.Read<uintptr_t>(memory.GetClientModule() + Offsets::dwLocalPlayer);
-    if (!localPlayer) return enemies;
+    // Get local player info
+    uintptr_t localController = memory.Read<uintptr_t>(memory.GetClientModule() + Offsets::dwLocalPlayerController);
+    if (!localController) return enemies;
     
-    int localTeam = memory.Read<int>(localPlayer + Offsets::m_iTeamNum);
+    uintptr_t localPawn = memory.GetLocalPlayerPawn();
+    if (!localPawn) return enemies;
+    
+    int localTeam = memory.Read<int>(localPawn + Offsets::m_iTeamNum);
 
-    // Loop through entity list
+    // Loop through entity list (CS2 uses a different structure)
     for (int i = 1; i <= 64; i++) {
-        uintptr_t entity = memory.Read<uintptr_t>(memory.GetClientModule() + Offsets::dwEntityList + (i - 1) * 0x10);
-        if (!entity) continue;
+        uintptr_t controller = memory.Read<uintptr_t>(memory.GetClientModule() + Offsets::dwEntityList + (i - 1) * 0x8);
+        if (!controller) continue;
+
+        // Get pawn handle and resolve to actual pawn
+        uintptr_t pawnHandle = memory.Read<uintptr_t>(controller + Offsets::m_hPlayerPawn);
+        if (!pawnHandle) continue;
+
+        uintptr_t pawn = memory.GetEntityPawnByIndex(pawnHandle & 0x7FFF);
+        if (!pawn) continue;
 
         // Check if entity is valid
-        bool dormant = memory.Read<bool>(entity + Offsets::m_bDormant);
-        int health = memory.Read<int>(entity + Offsets::m_iHealth);
-        int teamNum = memory.Read<int>(entity + Offsets::m_iTeamNum);
+        int health = memory.Read<int>(pawn + Offsets::m_iHealth);
+        int teamNum = memory.Read<int>(pawn + Offsets::m_iTeamNum);
         
-        if (dormant || health <= 0 || teamNum == localTeam)
+        if (health <= 0 || teamNum == localTeam)
             continue;
 
         // Get positions
-        Vector3 origin = memory.Read<Vector3>(entity + Offsets::m_vecOrigin);
+        Vector3 origin = memory.Read<Vector3>(pawn + Offsets::m_vecOrigin);
         
-        // Get head position from bone matrix
-        uintptr_t boneMatrix = memory.Read<uintptr_t>(entity + Offsets::m_dwBoneMatrix);
+        // Get head position from game state
+        uintptr_t gameSceneNode = memory.Read<uintptr_t>(pawn + 0x310);  // CS2 specific
+        uintptr_t boneMatrix = memory.Read<uintptr_t>(gameSceneNode + Offsets::m_dwBoneMatrix);
         Vector3 headPos;
         if (boneMatrix) {
-            // Head is usually bone 8
-            headPos.x = memory.Read<float>(boneMatrix + 0x30 * 8 + 0x0C);
-            headPos.y = memory.Read<float>(boneMatrix + 0x30 * 8 + 0x1C);
-            headPos.z = memory.Read<float>(boneMatrix + 0x30 * 8 + 0x2C);
+            // Head bone matrix in CS2
+            headPos.x = memory.Read<float>(boneMatrix + 0x30 * 6 + 0x0C);
+            headPos.y = memory.Read<float>(boneMatrix + 0x30 * 6 + 0x1C);
+            headPos.z = memory.Read<float>(boneMatrix + 0x30 * 6 + 0x2C);
         } else {
             headPos = origin;
             headPos.z += 64.0f; // Approximate head position
@@ -69,11 +79,12 @@ std::vector<Player> GetEnemyPlayers() {
         Player player;
         player.isEnemy = true;
         player.isAlive = true;
-        player.isDormant = false;
         player.health = health;
         player.position = origin;
         player.headPosition = headPos;
         player.teamNum = teamNum;
+        player.controller = controller;
+        player.pawn = pawn;
         
         enemies.push_back(player);
     }
@@ -120,13 +131,13 @@ void RunAimbot() {
 
     // Find closest enemy within FOV
     for (auto& enemy : enemies) {
-        if (!enemy.isAlive || !enemy.isEnemy) continue;
-
         // Calculate angle to enemy head
         float pitch, yaw;
-        CalculateAngle(localX, localY, localZ, enemy.headX, enemy.headY, enemy.headZ, pitch, yaw);
+        CalculateAngle(localX, localY, localZ, 
+                      enemy.headPosition.x, enemy.headPosition.y, enemy.headPosition.z,
+                      pitch, yaw);
 
-        // Calculate FOV difference (simplified)
+        // Calculate FOV difference
         float fovDiff = fabsf(yaw); // Simplified for example
 
         if (fovDiff < bestFOV) {
@@ -136,15 +147,21 @@ void RunAimbot() {
     }
 
     if (target) {
-        // Get current view angles
-        uintptr_t clientState = Memory::Get().Read<uintptr_t>(Memory::Get().GetEngineModule() + Offsets::dwClientState);
-        if (!clientState) continue;
+        // Get current view angles from CS2
+        auto& memory = Memory::Get();
+        uintptr_t clientState = memory.Read<uintptr_t>(memory.GetEngineModule() + 0x16C8F8); // CS2 offset
+        if (!clientState) {
+            LeaveCriticalSection(&cs);
+            return;
+        }
 
-        Vector3 currentAngles = Memory::Get().Read<Vector3>(clientState + Offsets::dwClientState_ViewAngles);
+        Vector3 currentAngles = memory.Read<Vector3>(clientState + 0x4D90); // CS2 view angles offset
         
         // Calculate target angles
         float targetPitch, targetYaw;
-        CalculateAngle(localX, localY, localZ, target->headPosition.x, target->headPosition.y, target->headPosition.z, targetPitch, targetYaw);
+        CalculateAngle(localX, localY, localZ,
+                      target->headPosition.x, target->headPosition.y, target->headPosition.z,
+                      targetPitch, targetYaw);
         
         // Smooth the angles
         float newPitch = SmoothAngle(currentAngles.x, targetPitch, smoothFactor);
@@ -158,7 +175,7 @@ void RunAimbot() {
 
         // Write new angles
         Vector3 newAngles = {newPitch, newYaw, 0.0f};
-        Memory::Get().Write<Vector3>(clientState + Offsets::dwClientState_ViewAngles, newAngles);
+        memory.Write<Vector3>(clientState + 0x4D90, newAngles);
     }
     
     LeaveCriticalSection(&cs);
