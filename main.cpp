@@ -12,8 +12,8 @@ HWND window = nullptr;
 WNDPROC oWndProc = nullptr;
 LPDIRECT3DDEVICE9 pDevice = nullptr;
 
-// Forward declare ImGui WndProc handler (defined in imgui_impl_win32.h)
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+// Forward declare ImGui WndProc handler
+LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 // Hooked EndScene function
 HRESULT __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice) {
@@ -59,12 +59,13 @@ DWORD WINAPI MainThread(LPVOID lpReserved) {
     oWndProc = (WNDPROC)SetWindowLongPtr(window, GWLP_WNDPROC, (LONG_PTR)WndProc);
 
     // Start aimbot thread
-    std::thread([]() {
+    CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
         while (true) {
             RunAimbot();
             Sleep(1);
         }
-    }).detach();
+        return 0;
+    }, nullptr, 0, nullptr);
 
     // TODO: Implement DirectX EndScene hooking here
     // This part would normally involve finding the vtable and hooking EndScene
