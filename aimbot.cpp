@@ -1,4 +1,5 @@
 #include "aimbot.h"
+#include "memory.h"
 #include <cmath>
 #include <vector>
 
@@ -7,26 +8,77 @@ namespace {
     float aimbotFOV = 5.0f;
     float smoothFactor = 5.0f;
     CRITICAL_SECTION cs;
-
-    // Dummy player structure for demonstration
-    struct Player {
-        bool isEnemy;
-        bool isAlive;
-        float x, y, z; // Position
-        float headX, headY, headZ; // Head position for aimbot
-    };
 }
 
-// Dummy function to get local player position
 void GetLocalPlayerPos(float& x, float& y, float& z) {
-    // TODO: Implement actual memory reading
-    x = 0.0f; y = 0.0f; z = 0.0f;
+    auto& memory = Memory::Get();
+    
+    // Read local player
+    uintptr_t localPlayer = memory.Read<uintptr_t>(memory.GetClientModule() + Offsets::dwLocalPlayer);
+    if (!localPlayer) return;
+
+    // Read position
+    Vector3 origin = memory.Read<Vector3>(localPlayer + Offsets::m_vecOrigin);
+    Vector3 viewOffset = memory.Read<Vector3>(localPlayer + Offsets::m_vecViewOffset);
+    
+    // Add view offset to get eye position
+    x = origin.x + viewOffset.x;
+    y = origin.y + viewOffset.y;
+    z = origin.z + viewOffset.z;
 }
 
-// Dummy function to get enemy players
 std::vector<Player> GetEnemyPlayers() {
-    // TODO: Implement actual memory reading
-    return std::vector<Player>{};
+    std::vector<Player> enemies;
+    auto& memory = Memory::Get();
+    
+    // Read local player first
+    uintptr_t localPlayer = memory.Read<uintptr_t>(memory.GetClientModule() + Offsets::dwLocalPlayer);
+    if (!localPlayer) return enemies;
+    
+    int localTeam = memory.Read<int>(localPlayer + Offsets::m_iTeamNum);
+
+    // Loop through entity list
+    for (int i = 1; i <= 64; i++) {
+        uintptr_t entity = memory.Read<uintptr_t>(memory.GetClientModule() + Offsets::dwEntityList + (i - 1) * 0x10);
+        if (!entity) continue;
+
+        // Check if entity is valid
+        bool dormant = memory.Read<bool>(entity + Offsets::m_bDormant);
+        int health = memory.Read<int>(entity + Offsets::m_iHealth);
+        int teamNum = memory.Read<int>(entity + Offsets::m_iTeamNum);
+        
+        if (dormant || health <= 0 || teamNum == localTeam)
+            continue;
+
+        // Get positions
+        Vector3 origin = memory.Read<Vector3>(entity + Offsets::m_vecOrigin);
+        
+        // Get head position from bone matrix
+        uintptr_t boneMatrix = memory.Read<uintptr_t>(entity + Offsets::m_dwBoneMatrix);
+        Vector3 headPos;
+        if (boneMatrix) {
+            // Head is usually bone 8
+            headPos.x = memory.Read<float>(boneMatrix + 0x30 * 8 + 0x0C);
+            headPos.y = memory.Read<float>(boneMatrix + 0x30 * 8 + 0x1C);
+            headPos.z = memory.Read<float>(boneMatrix + 0x30 * 8 + 0x2C);
+        } else {
+            headPos = origin;
+            headPos.z += 64.0f; // Approximate head position
+        }
+
+        Player player;
+        player.isEnemy = true;
+        player.isAlive = true;
+        player.isDormant = false;
+        player.health = health;
+        player.position = origin;
+        player.headPosition = headPos;
+        player.teamNum = teamNum;
+        
+        enemies.push_back(player);
+    }
+
+    return enemies;
 }
 
 // Calculate angle to target for aimbot
@@ -84,8 +136,29 @@ void RunAimbot() {
     }
 
     if (target) {
-        // Smooth aim towards target
-        // TODO: Implement actual view angle writing
+        // Get current view angles
+        uintptr_t clientState = Memory::Get().Read<uintptr_t>(Memory::Get().GetEngineModule() + Offsets::dwClientState);
+        if (!clientState) continue;
+
+        Vector3 currentAngles = Memory::Get().Read<Vector3>(clientState + Offsets::dwClientState_ViewAngles);
+        
+        // Calculate target angles
+        float targetPitch, targetYaw;
+        CalculateAngle(localX, localY, localZ, target->headPosition.x, target->headPosition.y, target->headPosition.z, targetPitch, targetYaw);
+        
+        // Smooth the angles
+        float newPitch = SmoothAngle(currentAngles.x, targetPitch, smoothFactor);
+        float newYaw = SmoothAngle(currentAngles.y, targetYaw, smoothFactor);
+        
+        // Clamp angles
+        if (newPitch > 89.0f) newPitch = 89.0f;
+        if (newPitch < -89.0f) newPitch = -89.0f;
+        while (newYaw > 180.0f) newYaw -= 360.0f;
+        while (newYaw < -180.0f) newYaw += 360.0f;
+
+        // Write new angles
+        Vector3 newAngles = {newPitch, newYaw, 0.0f};
+        Memory::Get().Write<Vector3>(clientState + Offsets::dwClientState_ViewAngles, newAngles);
     }
     
     LeaveCriticalSection(&cs);
