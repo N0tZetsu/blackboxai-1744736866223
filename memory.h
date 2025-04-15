@@ -4,23 +4,43 @@
 #include <vector>
 #include <cstdint>
 
-// CS:GO specific offsets
+// CS2 specific offsets (Source 2 engine)
 namespace Offsets {
-    constexpr auto dwLocalPlayer = 0xDEA964;
-    constexpr auto dwEntityList = 0x4DFFF14;
-    constexpr auto dwViewMatrix = 0x4DF0D44;
-    constexpr auto dwClientState = 0x589FE4;
-    constexpr auto dwClientState_ViewAngles = 0x4D90;
+    // Client.dll offsets
+    constexpr auto dwLocalPlayerController = 0x1810F48;    // Updated for CS2
+    constexpr auto dwEntityList = 0x17C1950;              // Updated for CS2
+    constexpr auto dwViewMatrix = 0x1820150;              // Updated for CS2
+    constexpr auto dwGlobalVars = 0x169C0D0;             // New in CS2
     
     // Entity offsets
-    constexpr auto m_iHealth = 0x100;
-    constexpr auto m_vecOrigin = 0x138;
-    constexpr auto m_vecViewOffset = 0x108;
-    constexpr auto m_dwBoneMatrix = 0x26A8;
-    constexpr auto m_iTeamNum = 0xF4;
-    constexpr auto m_bDormant = 0xED;
-    constexpr auto m_bSpottedByMask = 0x980;
+    constexpr auto m_hPlayerPawn = 0x7EC;                 // New in CS2
+    constexpr auto m_iHealth = 0x32C;                     // Updated for CS2
+    constexpr auto m_iTeamNum = 0x3BF;                    // Updated for CS2
+    constexpr auto m_vecOrigin = 0x1224;                  // Updated for CS2
+    constexpr auto m_vecViewOffset = 0x108;               // Updated for CS2
+    constexpr auto m_dwBoneMatrix = 0x1124;               // Updated for CS2
+    constexpr auto m_bSpottedByMask = 0x1698;            // Updated for CS2
 }
+
+// CS2 specific structures
+struct Vector3 {
+    float x, y, z;
+    
+    Vector3() : x(0), y(0), z(0) {}
+    Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
+    
+    Vector3 operator+(const Vector3& other) const {
+        return Vector3(x + other.x, y + other.y, z + other.z);
+    }
+    
+    Vector3 operator-(const Vector3& other) const {
+        return Vector3(x - other.x, y - other.y, z - other.z);
+    }
+};
+
+struct Matrix4x4 {
+    float m[4][4];
+};
 
 class Memory {
 public:
@@ -45,10 +65,15 @@ public:
         WriteProcessMemory(handle, (LPVOID)address, &value, sizeof(T), nullptr);
     }
 
-    // Game-specific functions
+    // CS2 specific functions
     uintptr_t GetClientModule() const { return clientModule; }
     uintptr_t GetEngineModule() const { return engineModule; }
     HANDLE GetProcessHandle() const { return handle; }
+
+    // New CS2 helper functions
+    uintptr_t GetLocalPlayerPawn();
+    uintptr_t GetEntityPawnByIndex(int index);
+    Matrix4x4 GetViewMatrix();
 
 private:
     Memory() : handle(nullptr), clientModule(0), engineModule(0) {}
@@ -63,28 +88,14 @@ private:
     uintptr_t engineModule;
 };
 
-// Game structures
-struct Vector3 {
-    float x, y, z;
-    
-    Vector3() : x(0), y(0), z(0) {}
-    Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
-    
-    Vector3 operator+(const Vector3& other) const {
-        return Vector3(x + other.x, y + other.y, z + other.z);
-    }
-    
-    Vector3 operator-(const Vector3& other) const {
-        return Vector3(x - other.x, y - other.y, z - other.z);
-    }
-};
-
+// CS2 player structure
 struct Player {
     bool isEnemy;
     bool isAlive;
-    bool isDormant;
     int health;
     Vector3 position;
     Vector3 headPosition;
     int teamNum;
+    uintptr_t controller;  // New in CS2
+    uintptr_t pawn;       // New in CS2
 };
