@@ -52,6 +52,12 @@ This project is an advanced cheat DLL for CS:GO featuring:
 
 4. **Build the project.**
 
+   Alternatively, you can compile using MinGW with the provided `build.bat` script:
+
+   ```
+   build.bat
+   ```
+
 5. **Inject the compiled DLL into CS:GO:**
 
    - Use Exloader or any DLL injector.
