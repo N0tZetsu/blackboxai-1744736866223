@@ -1,91 +1,114 @@
 #include "menu.h"
 #include "aimbot.h"
 #include "esp.h"
-#include "imgui.h"
-#include "imgui_impl_win32.h"
-#include "imgui_impl_dx9.h"
 #include <Windows.h>
 
-static bool showMenu = false;
-static HWND gWindow = nullptr;
-static LPDIRECT3DDEVICE9 gDevice = nullptr;
+namespace {
+    bool showMenu = false;
+    HWND gWindow = nullptr;
+    HWND menuWindow = nullptr;
+    int menuX = 100;
+    int menuY = 100;
 
-void InitializeMenu(HWND window, LPDIRECT3DDEVICE9 pDevice) {
+    // Window procedure for the menu window
+    LRESULT CALLBACK MenuWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        switch (msg) {
+            case WM_CREATE: {
+                // Create controls
+                CreateWindowA("button", "Aimbot", 
+                    WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+                    10, 10, 100, 20, hwnd, (HMENU)1, nullptr, nullptr);
+
+                CreateWindowA("button", "ESP", 
+                    WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+                    10, 40, 100, 20, hwnd, (HMENU)2, nullptr, nullptr);
+
+                // Aimbot FOV slider
+                CreateWindowA("static", "Aimbot FOV:", 
+                    WS_VISIBLE | WS_CHILD,
+                    10, 70, 100, 20, hwnd, nullptr, nullptr, nullptr);
+                CreateWindowA("scrollbar", nullptr,
+                    WS_VISIBLE | WS_CHILD | SBS_HORZ,
+                    10, 90, 200, 20, hwnd, (HMENU)3, nullptr, nullptr);
+
+                // ESP FOV slider
+                CreateWindowA("static", "ESP FOV:", 
+                    WS_VISIBLE | WS_CHILD,
+                    10, 120, 100, 20, hwnd, nullptr, nullptr, nullptr);
+                CreateWindowA("scrollbar", nullptr,
+                    WS_VISIBLE | WS_CHILD | SBS_HORZ,
+                    10, 140, 200, 20, hwnd, (HMENU)4, nullptr, nullptr);
+
+                return 0;
+            }
+
+            case WM_COMMAND: {
+                switch (LOWORD(wParam)) {
+                    case 1: // Aimbot checkbox
+                        SetAimbotEnabled(SendMessage((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                        break;
+                    case 2: // ESP checkbox
+                        SetESPEnabled(SendMessage((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                        break;
+                }
+                return 0;
+            }
+
+            case WM_HSCROLL: {
+                HWND scrollbar = (HWND)lParam;
+                int scrollID = GetDlgCtrlID(scrollbar);
+                
+                switch (scrollID) {
+                    case 3: // Aimbot FOV slider
+                        SetAimbotFOV((float)HIWORD(wParam));
+                        break;
+                    case 4: // ESP FOV slider
+                        SetESPFOV((float)HIWORD(wParam));
+                        break;
+                }
+                return 0;
+            }
+
+            case WM_CLOSE:
+                ShowWindow(hwnd, SW_HIDE);
+                showMenu = false;
+                return 0;
+        }
+        return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+}
+
+void InitializeMenu(HWND window) {
     gWindow = window;
-    gDevice = pDevice;
-    
-    // Initialize ImGui
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    
-    // Setup Platform/Renderer bindings
-    ImGui_ImplWin32_Init(window);
-    ImGui_ImplDX9_Init(pDevice);
-    
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    
-    // Customize colors to match the screenshot
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.10f, 0.94f);
-    style.Colors[ImGuiCol_Header] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
-    style.Colors[ImGuiCol_Button] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
-    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
-    style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.47f, 0.25f, 0.66f, 1.00f);
-    style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.57f, 0.35f, 0.76f, 1.00f);
-    style.Colors[ImGuiCol_CheckMark] = ImVec4(0.47f, 0.25f, 0.66f, 1.00f);
+
+    // Register window class for menu
+    WNDCLASSEXA wc = {0};
+    wc.cbSize = sizeof(WNDCLASSEXA);
+    wc.lpfnWndProc = MenuWndProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = "CSGOCheatMenu";
+    RegisterClassExA(&wc);
+
+    // Create menu window
+    menuWindow = CreateWindowExA(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        "CSGOCheatMenu",
+        "Cheat Menu",
+        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        menuX, menuY, 250, 200,
+        nullptr, nullptr,
+        GetModuleHandle(NULL),
+        nullptr
+    );
 }
 
 void RenderMenu() {
-    if (!showMenu) return;
-
-    ImGui_ImplDX9_NewFrame();
-    ImGui_ImplWin32_NewFrame();
-    ImGui::NewFrame();
-
-    ImGui::Begin("Evicted Cheat Menu", &showMenu, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
-
-    // Aimbot Section
-    ImGui::Text("Aimbot");
-    bool aimbotEnabled = IsAimbotEnabled();
-    if (ImGui::Checkbox("Enable Aimbot", &aimbotEnabled)) {
-        SetAimbotEnabled(aimbotEnabled);
+    if (showMenu && !IsWindowVisible(menuWindow)) {
+        ShowWindow(menuWindow, SW_SHOW);
     }
-    
-    static float aimbotFOV = 5.0f;
-    if (ImGui::SliderFloat("Aimbot FOV", &aimbotFOV, 1.0f, 30.0f)) {
-        SetAimbotFOV(aimbotFOV);
+    else if (!showMenu && IsWindowVisible(menuWindow)) {
+        ShowWindow(menuWindow, SW_HIDE);
     }
-    
-    static float smoothFactor = 5.0f;
-    if (ImGui::SliderFloat("Smooth Factor", &smoothFactor, 1.0f, 20.0f)) {
-        SetSmoothFactor(smoothFactor);
-    }
-
-    ImGui::Separator();
-
-    // ESP Section
-    ImGui::Text("ESP");
-    bool espEnabled = IsESPEnabled();
-    if (ImGui::Checkbox("Enable ESP", &espEnabled)) {
-        SetESPEnabled(espEnabled);
-    }
-    
-    static float espFOV = 90.0f;
-    if (ImGui::SliderFloat("ESP FOV", &espFOV, 30.0f, 180.0f)) {
-        SetESPFOV(espFOV);
-    }
-
-    ImGui::End();
-
-    ImGui::EndFrame();
-    ImGui::Render();
-    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
 }
 
 void ToggleMenu() {
@@ -97,7 +120,17 @@ bool IsMenuVisible() {
 }
 
 void CleanupMenu() {
-    ImGui_ImplDX9_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+    if (menuWindow) {
+        DestroyWindow(menuWindow);
+        menuWindow = nullptr;
+    }
+    UnregisterClassA("CSGOCheatMenu", GetModuleHandle(NULL));
+}
+
+void SetMenuPosition(int x, int y) {
+    menuX = x;
+    menuY = y;
+    if (menuWindow) {
+        SetWindowPos(menuWindow, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+    }
 }
