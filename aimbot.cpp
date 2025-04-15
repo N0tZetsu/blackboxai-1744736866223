@@ -1,14 +1,12 @@
 #include "aimbot.h"
 #include <cmath>
-#include <mutex>
 #include <vector>
-#include <thread>
 
 namespace {
     bool aimbotEnabled = false;
     float aimbotFOV = 5.0f;
     float smoothFactor = 5.0f;
-    std::mutex mtx;
+    CRITICAL_SECTION cs;
 
     // Dummy player structure for demonstration
     struct Player {
@@ -50,12 +48,15 @@ float SmoothAngle(float current, float target, float smooth) {
 }
 
 void InitializeAimbot() {
-    // Initialization code if needed
+    InitializeCriticalSection(&cs);
 }
 
 void RunAimbot() {
-    std::lock_guard<std::mutex> lock(mtx);
-    if (!aimbotEnabled) return;
+    EnterCriticalSection(&cs);
+    if (!aimbotEnabled) {
+        LeaveCriticalSection(&cs);
+        return;
+    }
 
     float localX, localY, localZ;
     GetLocalPlayerPos(localX, localY, localZ);
@@ -86,24 +87,31 @@ void RunAimbot() {
         // Smooth aim towards target
         // TODO: Implement actual view angle writing
     }
+    
+    LeaveCriticalSection(&cs);
 }
 
 void SetAimbotEnabled(bool enabled) {
-    std::lock_guard<std::mutex> lock(mtx);
+    EnterCriticalSection(&cs);
     aimbotEnabled = enabled;
+    LeaveCriticalSection(&cs);
 }
 
 void SetAimbotFOV(float fov) {
-    std::lock_guard<std::mutex> lock(mtx);
+    EnterCriticalSection(&cs);
     aimbotFOV = fov;
+    LeaveCriticalSection(&cs);
 }
 
 void SetSmoothFactor(float smooth) {
-    std::lock_guard<std::mutex> lock(mtx);
+    EnterCriticalSection(&cs);
     smoothFactor = smooth;
+    LeaveCriticalSection(&cs);
 }
 
 bool IsAimbotEnabled() {
-    std::lock_guard<std::mutex> lock(mtx);
-    return aimbotEnabled;
+    EnterCriticalSection(&cs);
+    bool enabled = aimbotEnabled;
+    LeaveCriticalSection(&cs);
+    return enabled;
 }
