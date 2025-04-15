@@ -1,12 +1,5 @@
-// csgo_cheat.cpp
-// Advanced CS:GO cheat DLL with Aimbot, ESP, FOV options, and ImGui menu toggled by Insert key.
-// Compile as DLL and inject with Exloader.
-
-// Note: This code is for educational purposes only. Using cheats in games is unethical and may result in bans.
-
 #include <Windows.h>
-#include <d3d9.h>
-#include <d3dx9.h>
+#include <vulkan/vulkan.h>
 #include <thread>
 #include <vector>
 #include <string>
@@ -15,16 +8,27 @@
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
-#include "imgui_impl_dx9.h"
+#include "imgui_impl_vulkan.h"
+#include "memory.h"
+#include "aimbot.h"
+#include "esp.h"
 
-// Forward declarations for hooking and game interaction
-typedef HRESULT(__stdcall* EndScene_t)(LPDIRECT3DDEVICE9 pDevice);
-EndScene_t oEndScene = nullptr;
+// Vulkan globals
+VkInstance instance = VK_NULL_HANDLE;
+VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+VkDevice device = VK_NULL_HANDLE;
+VkQueue graphicsQueue = VK_NULL_HANDLE;
+VkCommandPool commandPool = VK_NULL_HANDLE;
+VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+VkRenderPass renderPass = VK_NULL_HANDLE;
+VkFramebuffer framebuffer = VK_NULL_HANDLE;
+
+// Window and input handling
 HWND window = nullptr;
 WNDPROC oWndProc = nullptr;
-LPDIRECT3DDEVICE9 pDevice = nullptr;
-
 bool showMenu = false;
+
+// Cheat settings
 bool isAimbotEnabled = false;
 bool isESPEnabled = false;
 float aimbotFOV = 5.0f;
@@ -33,90 +37,74 @@ float smoothFactor = 5.0f;
 
 std::mutex mtx;
 
-// Dummy player structure for demonstration
-struct Player {
-    bool isEnemy;
-    bool isAlive;
-    float x, y, z; // Position
-    float headX, headY, headZ; // Head position for aimbot
-};
+// Initialize Vulkan
+bool InitVulkan() {
+    // Create Vulkan instance
+    VkApplicationInfo appInfo{};
+    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.pApplicationName = "CS2 Overlay";
+    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.pEngineName = "No Engine";
+    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.apiVersion = VK_API_VERSION_1_0;
 
-// Dummy function to get local player position
-void GetLocalPlayerPos(float& x, float& y, float& z) {
-    // TODO: Implement actual memory reading
-    x = 0.0f; y = 0.0f; z = 0.0f;
-}
+    VkInstanceCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.pApplicationInfo = &appInfo;
 
-// Dummy function to get enemy players
-std::vector<Player> GetEnemyPlayers() {
-    // TODO: Implement actual memory reading
-    return std::vector<Player>{};
-}
-
-// Calculate distance between two points
-float Distance(float x1, float y1, float z1, float x2, float y2, float z2) {
-    return sqrtf((x2 - x1)*(x2 - x1) + (y2 - y1)*(y2 - y1) + (z2 - z1)*(z2 - z1));
-}
-
-// Calculate angle to target for aimbot
-void CalculateAngle(float srcX, float srcY, float srcZ, float dstX, float dstY, float dstZ, float& pitch, float& yaw) {
-    float deltaX = dstX - srcX;
-    float deltaY = dstY - srcY;
-    float deltaZ = dstZ - srcZ;
-    float hyp = sqrtf(deltaX * deltaX + deltaY * deltaY);
-    pitch = -atan2f(deltaZ, hyp) * (180.0f / 3.14159265358979323846f);
-    yaw = atan2f(deltaY, deltaX) * (180.0f / 3.14159265358979323846f);
-}
-
-// Smoothly move current angle towards target angle
-float SmoothAngle(float current, float target, float smooth) {
-    float delta = target - current;
-    if (delta > 180.0f) delta -= 360.0f;
-    if (delta < -180.0f) delta += 360.0f;
-    return current + delta / smooth;
-}
-
-// Hooked EndScene function for rendering ImGui and ESP
-HRESULT __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice) {
-    static bool init = false;
-    if (!init) {
-        ImGui::CreateContext();
-        ImGuiIO& io = ImGui::GetIO();
-        ImGui_ImplWin32_Init(window);
-        ImGui_ImplDX9_Init(pDevice);
-        SetDevice(pDevice); // Initialize ESP with DirectX device
-        init = true;
+    if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
+        return false;
     }
 
-    // Run ESP before ImGui rendering
-    RunESP();
+    // Select physical device
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+    if (deviceCount == 0) return false;
 
-    ImGui_ImplDX9_NewFrame();
-    ImGui_ImplWin32_NewFrame();
-    ImGui::NewFrame();
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+    physicalDevice = devices[0]; // Just take the first one for simplicity
 
-    if (showMenu) {
-        ImGui::Begin("Evicted Cheat Menu", &showMenu, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
+    // Create logical device
+    VkDeviceQueueCreateInfo queueCreateInfo{};
+    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queueCreateInfo.queueFamilyIndex = 0;
+    queueCreateInfo.queueCount = 1;
+    float queuePriority = 1.0f;
+    queueCreateInfo.pQueuePriorities = &queuePriority;
 
-        ImGui::Text("Aimbot");
-        ImGui::Checkbox("Enable Aimbot", &isAimbotEnabled);
-        ImGui::SliderFloat("Aimbot FOV", &aimbotFOV, 1.0f, 30.0f);
-        ImGui::SliderFloat("Smooth Factor", &smoothFactor, 1.0f, 20.0f);
+    VkDeviceCreateInfo deviceCreateInfo{};
+    deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+    deviceCreateInfo.queueCreateInfoCount = 1;
 
-        ImGui::Separator();
-
-        ImGui::Text("ESP");
-        ImGui::Checkbox("Enable ESP", &isESPEnabled);
-        ImGui::SliderFloat("ESP FOV", &espFOV, 30.0f, 180.0f);
-
-        ImGui::End();
+    if (vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device) != VK_SUCCESS) {
+        return false;
     }
 
-    ImGui::EndFrame();
-    ImGui::Render();
-    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+    vkGetDeviceQueue(device, 0, 0, &graphicsQueue);
 
-    return oEndScene(pDevice);
+    // Create command pool and buffer
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.queueFamilyIndex = 0;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+    if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
+        return false;
+    }
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+
+    if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+        return false;
+    }
+
+    return true;
 }
 
 // Window procedure hook for input handling
@@ -135,35 +123,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 void AimbotThread() {
     while (true) {
         if (isAimbotEnabled) {
-            float localX, localY, localZ;
-            GetLocalPlayerPos(localX, localY, localZ);
-
-            auto enemies = GetEnemyPlayers();
-
-            float bestFOV = aimbotFOV;
-            Player* target = nullptr;
-
-            // Find closest enemy within FOV
-            for (auto& enemy : enemies) {
-                if (!enemy.isAlive || !enemy.isEnemy) continue;
-
-                // Calculate angle to enemy head
-                float pitch, yaw;
-                CalculateAngle(localX, localY, localZ, enemy.headX, enemy.headY, enemy.headZ, pitch, yaw);
-
-                // Calculate FOV difference (simplified)
-                float fovDiff = fabsf(yaw); // Simplified for example
-
-                if (fovDiff < bestFOV) {
-                    bestFOV = fovDiff;
-                    target = &enemy;
-                }
-            }
-
-            if (target) {
-                // Smooth aim towards target
-                // TODO: Implement actual view angle writing
-            }
+            RunAimbot();
         }
         Sleep(1);
     }
@@ -172,18 +132,72 @@ void AimbotThread() {
 // DLL main entry point
 DWORD WINAPI MainThread(LPVOID lpReserved) {
     // Wait for the game window
-    while (!(window = FindWindowA("Valve001", NULL))) {
+    while (!(window = FindWindowA("SDL_app", "Counter-Strike 2"))) {
         Sleep(100);
     }
 
-    // Hook Direct3D EndScene here (simplified, real hooking requires more work)
-    // TODO: Implement hooking
+    // Initialize memory system
+    if (!Memory::Get().Initialize()) {
+        return 0;
+    }
+
+    // Initialize Vulkan
+    if (!InitVulkan()) {
+        return 0;
+    }
+
+    // Initialize ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Initialize ImGui Vulkan implementation
+    ImGui_ImplWin32_Init(window);
+    ImGui_ImplVulkan_Init(renderPass); // You'll need to create a proper render pass
+
+    // Initialize ESP with Vulkan device
+    InitializeESP();
+    SetVulkanDevice(device, commandBuffer);
 
     // Hook WndProc for input
     oWndProc = (WNDPROC)SetWindowLongPtr(window, GWLP_WNDPROC, (LONG_PTR)WndProc);
 
     // Start aimbot thread
     std::thread(AimbotThread).detach();
+
+    // Main loop
+    while (true) {
+        if (showMenu) {
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplWin32_NewFrame();
+            ImGui::NewFrame();
+
+            ImGui::Begin("CS2 Cheat Menu", &showMenu, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
+
+            ImGui::Text("Aimbot");
+            ImGui::Checkbox("Enable Aimbot", &isAimbotEnabled);
+            ImGui::SliderFloat("Aimbot FOV", &aimbotFOV, 1.0f, 30.0f);
+            ImGui::SliderFloat("Smooth Factor", &smoothFactor, 1.0f, 20.0f);
+
+            ImGui::Separator();
+
+            ImGui::Text("ESP");
+            ImGui::Checkbox("Enable ESP", &isESPEnabled);
+            ImGui::SliderFloat("ESP FOV", &espFOV, 30.0f, 180.0f);
+
+            ImGui::End();
+
+            ImGui::Render();
+            // Begin Vulkan render pass and execute ImGui draw data
+        }
+
+        // Run ESP
+        if (isESPEnabled) {
+            RunESP();
+        }
+
+        Sleep(1);
+    }
 
     return 0;
 }
@@ -195,19 +209,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         CreateThread(nullptr, 0, MainThread, hModule, 0, nullptr);
         break;
     case DLL_PROCESS_DETACH:
-        // Cleanup
+        // Cleanup Vulkan
+        if (commandPool) vkDestroyCommandPool(device, commandPool, nullptr);
+        if (device) vkDestroyDevice(device, nullptr);
+        if (instance) vkDestroyInstance(instance, nullptr);
         break;
     }
     return TRUE;
 }
-
-/*
-Instructions to compile:
-
-1. Download and include ImGui (https://github.com/ocornut/imgui) and its DirectX9 and Win32 bindings.
-2. Link against d3d9.lib and d3dx9.lib.
-3. Compile as a DLL.
-4. Inject the DLL into CS:GO using Exloader or any DLL injector.
-
-Note: This is a simplified example and requires further implementation for full functionality.
-*/
