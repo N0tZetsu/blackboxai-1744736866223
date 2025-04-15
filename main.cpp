@@ -12,14 +12,11 @@ HWND window = nullptr;
 WNDPROC oWndProc = nullptr;
 LPDIRECT3DDEVICE9 pDevice = nullptr;
 
-// Forward declare ImGui WndProc handler
-LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
 // Hooked EndScene function
 HRESULT __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice) {
     static bool init = false;
     if (!init) {
-        InitializeMenu(window, pDevice);
+        InitializeMenu(window);
         InitializeAimbot();
         InitializeESP();
         init = true;
@@ -34,11 +31,6 @@ HRESULT __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice) {
 
 // Window procedure hook
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    // Pass events to ImGui
-    if (IsMenuVisible()) {
-        ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
-    }
-
     // Handle Insert key to toggle menu
     if (uMsg == WM_KEYDOWN && wParam == VK_INSERT) {
         ToggleMenu();
