@@ -1,8 +1,11 @@
 #pragma once
+#include <Windows.h>
 
-void InitializeAimbot();
-void RunAimbot();
-void SetAimbotEnabled(bool enabled);
-void SetAimbotFOV(float fov);
-void SetSmoothFactor(float smooth);
-bool IsAimbotEnabled();
+extern "C" {
+    void InitializeAimbot();
+    void RunAimbot();
+    void SetAimbotEnabled(bool enabled);
+    void SetAimbotFOV(float fov);
+    void SetSmoothFactor(float smooth);
+    bool IsAimbotEnabled();
+}
