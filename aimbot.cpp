@@ -2,19 +2,22 @@
 #include <cmath>
 #include <mutex>
 #include <vector>
+#include <thread>
 
-static bool aimbotEnabled = false;
-static float aimbotFOV = 5.0f;
-static float smoothFactor = 5.0f;
-static std::mutex mtx;
+namespace {
+    bool aimbotEnabled = false;
+    float aimbotFOV = 5.0f;
+    float smoothFactor = 5.0f;
+    std::mutex mtx;
 
-// Dummy player structure for demonstration
-struct Player {
-    bool isEnemy;
-    bool isAlive;
-    float x, y, z; // Position
-    float headX, headY, headZ; // Head position for aimbot
-};
+    // Dummy player structure for demonstration
+    struct Player {
+        bool isEnemy;
+        bool isAlive;
+        float x, y, z; // Position
+        float headX, headY, headZ; // Head position for aimbot
+    };
+}
 
 // Dummy function to get local player position
 void GetLocalPlayerPos(float& x, float& y, float& z) {
@@ -51,6 +54,7 @@ void InitializeAimbot() {
 }
 
 void RunAimbot() {
+    std::lock_guard<std::mutex> lock(mtx);
     if (!aimbotEnabled) return;
 
     float localX, localY, localZ;
