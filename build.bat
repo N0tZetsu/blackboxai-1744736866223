@@ -4,8 +4,8 @@ REM Build script for compiling CS2 cheat DLL using MinGW
 REM Set path to your MinGW bin directory if not in PATH
 REM set PATH=C:\MinGW\bin;%PATH%
 
-REM Set Vulkan SDK path - Update this to match your Vulkan SDK installation
-set VULKAN_SDK=C:\VulkanSDK\1.3.250.1
+REM Set Vulkan SDK path
+set VULKAN_SDK=C:\Users\Admin\VulkanSDK
 
 echo Building CS2 cheat DLL...
 
@@ -24,9 +24,9 @@ echo Build complete: cs2_cheat.dll
 
 REM Instructions
 echo.
-echo Before running the cheat:
-echo 1. Install Vulkan SDK from https://vulkan.lunarg.com/
-echo 2. Update VULKAN_SDK path in this script to match your installation
-echo 3. Inject cs2_cheat.dll into CS2 using your preferred injector
+echo El cheat ha sido compilado. Para usarlo:
+echo 1. Inyectar cs2_cheat.dll en CS2
+echo 2. Usar la tecla Insert para mostrar/ocultar el menu
+echo 3. Configurar Aimbot y ESP desde el menu
 echo.
 pause
