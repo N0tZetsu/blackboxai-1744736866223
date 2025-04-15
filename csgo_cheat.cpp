@@ -84,8 +84,12 @@ HRESULT __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice) {
         ImGuiIO& io = ImGui::GetIO();
         ImGui_ImplWin32_Init(window);
         ImGui_ImplDX9_Init(pDevice);
+        SetDevice(pDevice); // Initialize ESP with DirectX device
         init = true;
     }
+
+    // Run ESP before ImGui rendering
+    RunESP();
 
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -107,8 +111,6 @@ HRESULT __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice) {
 
         ImGui::End();
     }
-
-    // TODO: Implement ESP rendering here
 
     ImGui::EndFrame();
     ImGui::Render();
