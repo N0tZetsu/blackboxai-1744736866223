@@ -1,15 +1,19 @@
 #include "esp.h"
 #include <mutex>
+#include <thread>
 
-static bool espEnabled = false;
-static float espFOV = 90.0f;
-static std::mutex mtx;
+namespace {
+    bool espEnabled = false;
+    float espFOV = 90.0f;
+    std::mutex mtx;
+}
 
 void InitializeESP() {
     // Initialization code if needed
 }
 
 void RunESP() {
+    std::lock_guard<std::mutex> lock(mtx);
     if (!espEnabled) return;
 
     // TODO: Implement ESP rendering here
