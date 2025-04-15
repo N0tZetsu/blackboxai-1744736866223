@@ -1,37 +1,45 @@
 #include "esp.h"
-#include <mutex>
-#include <thread>
+#include <Windows.h>
 
 namespace {
     bool espEnabled = false;
     float espFOV = 90.0f;
-    std::mutex mtx;
+    CRITICAL_SECTION cs;
 }
 
 void InitializeESP() {
-    // Initialization code if needed
+    InitializeCriticalSection(&cs);
 }
 
 void RunESP() {
-    std::lock_guard<std::mutex> lock(mtx);
-    if (!espEnabled) return;
+    EnterCriticalSection(&cs);
+    if (!espEnabled) {
+        LeaveCriticalSection(&cs);
+        return;
+    }
 
     // TODO: Implement ESP rendering here
     // This will be implemented when we have the DirectX device context
     // Will draw boxes, health bars, names, etc. around players
+
+    LeaveCriticalSection(&cs);
 }
 
 void SetESPEnabled(bool enabled) {
-    std::lock_guard<std::mutex> lock(mtx);
+    EnterCriticalSection(&cs);
     espEnabled = enabled;
+    LeaveCriticalSection(&cs);
 }
 
 void SetESPFOV(float fov) {
-    std::lock_guard<std::mutex> lock(mtx);
+    EnterCriticalSection(&cs);
     espFOV = fov;
+    LeaveCriticalSection(&cs);
 }
 
 bool IsESPEnabled() {
-    std::lock_guard<std::mutex> lock(mtx);
-    return espEnabled;
+    EnterCriticalSection(&cs);
+    bool enabled = espEnabled;
+    LeaveCriticalSection(&cs);
+    return enabled;
 }
