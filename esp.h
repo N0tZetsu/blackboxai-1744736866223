@@ -1,6 +1,6 @@
 #pragma once
 #include <Windows.h>
-#include <d3d9.h>
+#include <vulkan/vulkan.h>
 
 extern "C" {
     void InitializeESP();
@@ -8,5 +8,6 @@ extern "C" {
     void SetESPEnabled(bool enabled);
     void SetESPFOV(float fov);
     bool IsESPEnabled();
-    void SetDevice(LPDIRECT3DDEVICE9 device);
+    void SetVulkanDevice(VkDevice device, VkCommandBuffer cmdBuffer);
+    void SetViewport(float width, float height);
 }
