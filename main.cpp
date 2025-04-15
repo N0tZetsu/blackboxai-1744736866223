@@ -1,87 +1,90 @@
+#define NOMINMAX
 #include <Windows.h>
-#include <d3d9.h>
-#include "menu.h"
-#include "aimbot.h"
-#include "esp.h"
 
-// Function prototypes for DirectX hooking
-typedef HRESULT(__stdcall* EndScene_t)(LPDIRECT3DDEVICE9 pDevice);
-EndScene_t oEndScene = nullptr;
-HWND window = nullptr;
-WNDPROC oWndProc = nullptr;
-LPDIRECT3DDEVICE9 pDevice = nullptr;
+#include "valve_sdk/sdk.hpp"
+#include "helpers/utils.hpp"
+#include "helpers/config_manager.hpp"
+#include "helpers/input.hpp"
+#ifndef _DEBUG
+#endif // !_DEBUG
 
-// Hooked EndScene function
-HRESULT __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice) {
-    static bool init = false;
-    if (!init) {
-        InitializeMenu(window);
-        InitializeAimbot();
-        InitializeESP();
-        init = true;
-    }
+#include "features/skinchanger/skins.hpp"
 
-    // Render our cheat features
-    RenderMenu();
-    RunESP();
+#include "hooks.hpp"
+#include "menu/menu.hpp"
+#include "options.hpp"
 
-    return oEndScene(pDevice);
+#include <TlHelp32.h>
+
+static unsigned char global_opCodes[] = { 0x8b, 0xff, 0x55, 0x8b, 0xec };
+static unsigned char readfile_opCodes[] = { 0xff, 0x25, 0x30, 0x04, 0x91 };
+
+auto CheckHook = [](PDWORD pdwAddress, unsigned char* opCodes)
+{
+	for (int i = 0; i < 5; i++)
+	{
+		if (((unsigned char*)pdwAddress)[i] != opCodes[i]) *((unsigned int*)0) = 0xDEAD;//MessageBox(0, "Hook detected", 0, 0);
+	}
+};
+
+
+DWORD WINAPI OnDllAttach(PVOID base)
+{
+
+	while (!GetModuleHandleA(("serverbrowser.dll")))
+		Sleep(1000);
+  	
+
+    try {
+		//Utils::AttachConsole();
+
+        Utils::ConsolePrint(("Initializing...\n"));
+
+        Interfaces::Initialize();
+        Interfaces::Dump();
+
+        NetvarSys::Get().Initialize();
+        InputSys::Get().Initialize();
+		CConfig::Get().Initialize();
+		CSkinChanger::Get().Initialize();
+
+        Hooks::Initialize();
+
+        Utils::ConsolePrint(("Finished.\n"));
+
+        while (!Globals::Unload)
+            Sleep(1000);
+
+		Hooks::Unload();
+
+		FreeLibraryAndExitThread(HMODULE(base), 0);
+
+    } catch(const std::exception& ex) {
+        Utils::ConsolePrint(("An error occured during initialization:\n"));
+        Utils::ConsolePrint(("%s\n"), ex.what());
+        Utils::ConsolePrint(("Press any key to exit.\n"));
+        Utils::ConsoleReadKey();
+        Utils::DetachConsole();
+
+		FreeLibraryAndExitThread(HMODULE(base), 0);
+	}
 }
 
-// Window procedure hook
-LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    // Handle Insert key to toggle menu
-    if (uMsg == WM_KEYDOWN && wParam == VK_INSERT) {
-        ToggleMenu();
-        return true;
-    }
+BOOL WINAPI OnDllDetach()
+{
+    Utils::DetachConsole();
 
-    return CallWindowProc(oWndProc, hWnd, uMsg, wParam, lParam);
-}
+    Hooks::Unload();
 
-// Aimbot thread function
-DWORD WINAPI AimbotThread(LPVOID lpParam) {
-    while (true) {
-        RunAimbot();
-        Sleep(1);
-    }
-    return 0;
-}
-
-// Main thread function
-DWORD WINAPI MainThread(LPVOID lpReserved) {
-    // Wait for CS:GO window
-    while (!(window = FindWindowA("Valve001", NULL))) {
-        Sleep(100);
-    }
-
-    // Hook WndProc
-    oWndProc = (WNDPROC)SetWindowLongPtr(window, GWLP_WNDPROC, (LONG_PTR)WndProc);
-
-    // Start aimbot thread
-    CreateThread(nullptr, 0, AimbotThread, nullptr, 0, nullptr);
-
-    // TODO: Implement DirectX EndScene hooking here
-    // This part would normally involve finding the vtable and hooking EndScene
-    // The actual implementation depends on your hooking method (VMT, detours, etc.)
-
-    return 0;
-}
-
-// DLL entry point
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
-    switch (ul_reason_for_call) {
-    case DLL_PROCESS_ATTACH:
-        DisableThreadLibraryCalls(hModule);
-        CreateThread(nullptr, 0, MainThread, hModule, 0, nullptr);
-        break;
-    case DLL_PROCESS_DETACH:
-        // Cleanup
-        if (oWndProc) {
-            SetWindowLongPtr(window, GWLP_WNDPROC, (LONG_PTR)oWndProc);
-        }
-        CleanupMenu();
-        break;
-    }
     return TRUE;
+}
+
+BOOL WINAPI DllMain(_In_ HINSTANCE hinstDll, _In_ DWORD fdwReason, _In_opt_ LPVOID lpvReserved)
+{
+	if (fdwReason == DLL_PROCESS_ATTACH) {
+		DisableThreadLibraryCalls(hinstDll);
+		CreateThread(nullptr, 0, OnDllAttach, hinstDll, 0, nullptr);
+
+		return TRUE;
+	}
 }
